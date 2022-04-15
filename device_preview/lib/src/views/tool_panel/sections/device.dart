@@ -36,28 +36,26 @@ class DeviceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final deviceName = context.select(
-      (DevicePreviewStore store) => store.deviceInfo.name,
-    );
-    final deviceIdentifier = context.select(
-      (DevicePreviewStore store) => store.deviceInfo.identifier,
+
+    final store = context.select(
+      (DevicePreviewStore store) => store,
     );
 
-    final canRotate = context.select(
-      (DevicePreviewStore store) => store.deviceInfo.rotatedSafeAreas != null,
-    );
+    final deviceInfo = store.deviceInfo;
 
-    final orientation = context.select(
-      (DevicePreviewStore store) => store.data.orientation,
-    );
+    final deviceName = deviceInfo.name;
 
-    final isVirtualKeyboardVisible = context.select(
-      (DevicePreviewStore store) => store.data.isVirtualKeyboardVisible,
-    );
+    final deviceIdentifier = deviceInfo.identifier;
 
-    final isFrameVisible = context.select(
-      (DevicePreviewStore store) => store.data.isFrameVisible,
-    );
+    final canRotate = deviceInfo.rotatedSafeAreas != null;
+
+    final storeData = store.data;
+
+    final orientation = storeData.orientation;
+
+    final isVirtualKeyboardVisible = storeData.isVirtualKeyboardVisible;
+
+    final isFrameVisible = storeData.isFrameVisible;
 
     return ToolPanelSection(
       title: 'Device',

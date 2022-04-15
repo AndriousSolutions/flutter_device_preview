@@ -22,20 +22,21 @@ class DevicePreviewStore extends ChangeNotifier {
     List<DeviceInfo>? devices,
     required this.storage,
   }) {
-    initialize(
-      locales: locales,
-      devices: devices,
-    );
+    // initialize(
+    //   locales: locales,
+    //   devices: devices,
+    // );
+    _state = const DevicePreviewState.notInitialized();
   }
 
   final DeviceInfo defaultDevice;
 
-  DevicePreviewState _state = const DevicePreviewState.notInitialized();
+  late DevicePreviewState _state;
 
   /// The storage used to persist the states's data.
   final DevicePreviewStorage storage;
 
-  /// The curren state of the device preview.
+  /// The current state of the device preview.
   DevicePreviewState get state => _state;
 
   /// Update the state with [value] and notifies all listeners
@@ -58,13 +59,14 @@ class DevicePreviewStore extends ChangeNotifier {
   );
 
   /// Initializes the state by loading data from storage (if [useStorage])
-  Future<void> initialize({
+  Future<DevicePreviewStore> initialize({
     List<Locale>? locales,
     List<DeviceInfo>? devices,
   }) async {
     await state.maybeWhen(
       notInitialized: () async {
-        state = const DevicePreviewState.initializing();
+        // Efficient to call notifyListeners(). It's already initializing.
+        _state = const DevicePreviewState.initializing();
 
         final availaiableLocales = locales != null
             ? locales
@@ -105,7 +107,8 @@ class DevicePreviewStore extends ChangeNotifier {
             customDevice: _defaultCustomDevice,
           );
         }
-        state = DevicePreviewState.initialized(
+        // Inefficient to call notifyListeners() here.
+        _state = DevicePreviewState.initialized(
           locales: availaiableLocales.cast<NamedLocale>(),
           devices: devices!,
           data: data,
@@ -113,6 +116,7 @@ class DevicePreviewStore extends ChangeNotifier {
       },
       orElse: () => Future.value(),
     );
+    return this;
   }
 }
 

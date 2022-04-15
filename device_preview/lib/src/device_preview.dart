@@ -389,33 +389,232 @@ class _DevicePreviewState extends State<DevicePreview> {
     }
   }
 
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) {
+      return Builder(
+        key: _appKey,
+        builder: widget.builder,
+      );
+    }
+
+    final store = DevicePreviewStore(
+      defaultDevice: widget.defaultDevice ?? Devices.ios.iPhone13,
+      devices: widget.devices,
+      locales: widget.availableLocales,
+      storage: storage,
+    );
+
+    return FutureBuilder<DevicePreviewStore>(
+        future: store.initialize(),
+        builder: (context, snapshot) {
+          Widget widget;
+
+          if (snapshot.hasData) {
+            widget = _futureBuilderDone(context, snapshot.data!);
+          } else {
+            widget = const Center(child: CircularProgressIndicator());
+          }
+          return widget;
+        });
+  }
+
+  Widget _futureBuilderDone(BuildContext context, DevicePreviewStore store) =>
+      ChangeNotifierProvider<DevicePreviewStore>(
+        create: (_) => store,
+        // create: (context) => DevicePreviewStore(
+        //   defaultDevice: widget.defaultDevice ?? Devices.ios.iPhone13,
+        //   devices: widget.devices,
+        //   locales: widget.availableLocales,
+        //   storage: storage,
+        // ),
+        builder: (context, child) {
+          // Retrieve the store
+          final store = context.select((DevicePreviewStore store) => store);
+
+          final isInitialized = store.state.maybeMap<bool>(
+            initialized: (_) => true,
+            orElse: () => false,
+          );
+
+          if (!isInitialized) {
+            return Builder(
+              key: _appKey,
+              builder: widget.builder,
+            );
+          }
+
+          final isEnabled = store.data.isEnabled;
+
+          final toolbarTheme = store.settings.toolbarTheme;
+
+          final backgroundTheme = store.settings.backgroundTheme;
+
+          final isToolbarVisible =
+              widget.isToolbarVisible && store.data.isToolbarVisible;
+
+          final toolbar = toolbarTheme.asThemeData();
+          final background = backgroundTheme.asThemeData();
+          return Directionality(
+            textDirection: TextDirection.ltr,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              child: MediaQueryObserver(
+                //mediaQuery: DevicePreview._mediaQuery(context),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: toolbar.scaffoldBackgroundColor,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final mediaQuery = MediaQuery.of(context);
+                      final isSmall = constraints.maxWidth < 700;
+
+                      final borderRadius = BorderRadius.only(
+                        topRight:
+                            isSmall ? Radius.zero : const Radius.circular(16),
+                        bottomRight: const Radius.circular(16),
+                        bottomLeft:
+                            isSmall ? const Radius.circular(16) : Radius.zero,
+                      );
+                      return Stack(
+                        children: <Widget>[
+                          if (isToolbarVisible && isSmall)
+                            Positioned(
+                              key: const Key('Small'),
+                              bottom: 0,
+                              right: 0,
+                              left: 0,
+                              child: DevicePreviewSmallLayout(
+                                slivers: widget.tools,
+                                maxMenuHeight: constraints.maxHeight * 0.5,
+                                scaffoldKey: scaffoldKey,
+                                onMenuVisibleChanged: (isVisible) =>
+                                    setState(() {
+                                  _isToolPanelPopOverOpen = isVisible;
+                                }),
+                              ),
+                            ),
+                          if (isToolbarVisible && !isSmall)
+                            Positioned.fill(
+                              key: const Key('Large'),
+                              child: DervicePreviewLargeLayout(
+                                slivers: widget.tools,
+                              ),
+                            ),
+                          AnimatedPositioned(
+                            key: const Key('preview'),
+                            duration: const Duration(milliseconds: 200),
+                            left: 0,
+                            right: !isSmall
+                                ? (isEnabled
+                                    ? ToolPanel.panelWidth - 10
+                                    : (64 + mediaQuery.padding.right))
+                                : 0,
+                            top: 0,
+                            bottom:
+                                isSmall ? mediaQuery.padding.bottom + 52 : 0,
+                            child: Theme(
+                              data: background,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      blurRadius: 20,
+                                      color: Color(0xAA000000),
+                                    ),
+                                  ],
+                                  borderRadius: borderRadius,
+                                  color: background.scaffoldBackgroundColor,
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: borderRadius,
+                                  child: isEnabled
+                                      ? Builder(
+                                          builder: _buildPreview,
+                                        )
+                                      : Builder(
+                                          key: _appKey,
+                                          builder: widget.builder,
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              ignoring: !_isToolPanelPopOverOpen,
+                              child: Localizations(
+                                locale: const Locale('en', 'US'),
+                                delegates: const [
+                                  GlobalMaterialLocalizations.delegate,
+                                  GlobalCupertinoLocalizations.delegate,
+                                  GlobalWidgetsLocalizations.delegate,
+                                ],
+                                child: Navigator(
+                                  onGenerateInitialRoutes: (navigator, name) {
+                                    return [
+                                      MaterialPageRoute(
+                                        builder: (context) => Scaffold(
+                                          key: scaffoldKey,
+                                          backgroundColor: Colors.transparent,
+                                        ),
+                                      ),
+                                    ];
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+
+  /// The repaint key used for rendering screenshots.
+  final _repaintKey = GlobalKey();
+
+  /// A stream that sends a new value each time the user takes
+  /// a new screenshot.
+  StreamController<DeviceScreenshot>? _onScreenshot;
+
+  /// The current application key.
+  final GlobalKey _appKey = GlobalKey();
+
   Widget _buildPreview(BuildContext context) {
     final theme = Theme.of(context);
-    final isEnabled = context.select(
-      (DevicePreviewStore store) => store.state.maybeMap(
-        initialized: (state) => state.data.isEnabled,
-        orElse: () => false,
-      ),
+
+    // Retrieve the store
+    final store = context.select((DevicePreviewStore store) => store);
+
+    final isEnabled = store.state.maybeMap(
+      initialized: (state) => state.data.isEnabled,
+      orElse: () => false,
     );
 
-    if (!isEnabled) return widget.builder(context);
+    if (!isEnabled) {
+      return widget.builder(context);
+    }
+
+    final device = store.deviceInfo;
+
+    final storeData = store.data;
+
+    final isFrameVisible = storeData.isFrameVisible;
+
+    final orientation = storeData.orientation;
+
+    final isVirtualKeyboardVisible = storeData.isVirtualKeyboardVisible;
+
+    final isDarkMode = storeData.isDarkMode;
 
     final mediaQuery = MediaQuery.of(context);
-    final device = context.select(
-      (DevicePreviewStore store) => store.deviceInfo,
-    );
-    final isFrameVisible = context.select(
-      (DevicePreviewStore store) => store.data.isFrameVisible,
-    );
-    final orientation = context.select(
-      (DevicePreviewStore store) => store.data.orientation,
-    );
-    final isVirtualKeyboardVisible = context.select(
-      (DevicePreviewStore store) => store.data.isVirtualKeyboardVisible,
-    );
-    final isDarkMode = context.select(
-      (DevicePreviewStore store) => store.data.isDarkMode,
-    );
 
     return Container(
       color: theme.canvasColor,
@@ -461,184 +660,4 @@ class _DevicePreviewState extends State<DevicePreview> {
       ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.enabled) {
-      return Builder(
-        key: _appKey,
-        builder: widget.builder,
-      );
-    }
-
-    return ChangeNotifierProvider(
-      create: (context) => DevicePreviewStore(
-        defaultDevice: widget.defaultDevice ?? Devices.ios.iPhone13,
-        devices: widget.devices,
-        locales: widget.availableLocales,
-        storage: storage,
-      ),
-      builder: (context, child) {
-        final isInitialized = context.select(
-          (DevicePreviewStore store) => store.state.maybeMap(
-            initialized: (_) => true,
-            orElse: () => false,
-          ),
-        );
-
-        if (!isInitialized) {
-          return Builder(
-            key: _appKey,
-            builder: widget.builder,
-          );
-        }
-
-        final isEnabled = context.select(
-          (DevicePreviewStore store) => store.data.isEnabled,
-        );
-
-        final toolbarTheme = context.select(
-          (DevicePreviewStore store) => store.settings.toolbarTheme,
-        );
-
-        final backgroundTheme = context.select(
-          (DevicePreviewStore store) => store.settings.backgroundTheme,
-        );
-
-        final isToolbarVisible = widget.isToolbarVisible &&
-            context.select(
-              (DevicePreviewStore store) => store.data.isToolbarVisible,
-            );
-
-        final toolbar = toolbarTheme.asThemeData();
-        final background = backgroundTheme.asThemeData();
-        return Directionality(
-          textDirection: TextDirection.ltr,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 400),
-            child: MediaQueryObserver(
-              //mediaQuery: DevicePreview._mediaQuery(context),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: toolbar.scaffoldBackgroundColor,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final mediaQuery = MediaQuery.of(context);
-                    final isSmall = constraints.maxWidth < 700;
-
-                    final borderRadius = isToolbarVisible
-                        ? BorderRadius.only(
-                            topRight: isSmall ? Radius.zero : const Radius.circular(16),
-                            bottomRight: const Radius.circular(16),
-                            bottomLeft: isSmall ? const Radius.circular(16) : Radius.zero,
-                          )
-                        : BorderRadius.zero;
-                    final double rightPanelOffset =
-                        !isSmall ? (isEnabled ? ToolPanel.panelWidth - 10 : (64 + mediaQuery.padding.right)) : 0;
-                    final double bottomPanelOffset = isSmall ? mediaQuery.padding.bottom + 52 : 0;
-                    return Stack(
-                      children: <Widget>[
-                        if (isToolbarVisible && isSmall)
-                          Positioned(
-                            key: const Key('Small'),
-                            bottom: 0,
-                            right: 0,
-                            left: 0,
-                            child: DevicePreviewSmallLayout(
-                              slivers: widget.tools,
-                              maxMenuHeight: constraints.maxHeight * 0.5,
-                              scaffoldKey: scaffoldKey,
-                              onMenuVisibleChanged: (isVisible) => setState(() {
-                                _isToolPanelPopOverOpen = isVisible;
-                              }),
-                            ),
-                          ),
-                        if (isToolbarVisible && !isSmall)
-                          Positioned.fill(
-                            key: const Key('Large'),
-                            child: DervicePreviewLargeLayout(
-                              slivers: widget.tools,
-                            ),
-                          ),
-                        AnimatedPositioned(
-                          key: const Key('preview'),
-                          duration: const Duration(milliseconds: 200),
-                          left: 0,
-                          right: isToolbarVisible ? rightPanelOffset : 0,
-                          top: 0,
-                          bottom: isToolbarVisible ? bottomPanelOffset : 0,
-                          child: Theme(
-                            data: background,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                boxShadow: const [
-                                  BoxShadow(
-                                    blurRadius: 20,
-                                    color: Color(0xAA000000),
-                                  ),
-                                ],
-                                borderRadius: borderRadius,
-                                color: background.scaffoldBackgroundColor,
-                              ),
-                              child: ClipRRect(
-                                borderRadius: borderRadius,
-                                child: isEnabled
-                                    ? Builder(
-                                        builder: _buildPreview,
-                                      )
-                                    : Builder(
-                                        key: _appKey,
-                                        builder: widget.builder,
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            ignoring: !_isToolPanelPopOverOpen,
-                            child: Localizations(
-                              locale: const Locale('en', 'US'),
-                              delegates: const [
-                                GlobalMaterialLocalizations.delegate,
-                                GlobalCupertinoLocalizations.delegate,
-                                GlobalWidgetsLocalizations.delegate,
-                              ],
-                              child: Navigator(
-                                onGenerateInitialRoutes: (navigator, name) {
-                                  return [
-                                    MaterialPageRoute(
-                                      builder: (context) => Scaffold(
-                                        key: scaffoldKey,
-                                        backgroundColor: Colors.transparent,
-                                      ),
-                                    ),
-                                  ];
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// The repaint key used for rendering screenshots.
-  final _repaintKey = GlobalKey();
-
-  /// A stream that sends a new value each time the user takes
-  /// a new screenshot.
-  StreamController<DeviceScreenshot>? _onScreenshot;
-
-  /// The current application key.
-  final GlobalKey _appKey = GlobalKey();
 }
